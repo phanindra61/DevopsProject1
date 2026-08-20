@@ -1,1 +1,95 @@
+pipeline {
+    agent any
+
+    stages {
+
+        stage('Code Cloning') {
+            steps {
+                echo 'Cloning the code'
+
+                git branch: 'main',
+                    credentialsId: 'git',
+                    url: 'https://github.com/phanindra61/DevopsProject1.git'
+            }
+        }
+
+        stage('Maven Unit Test') {
+            steps {
+                dir('/var/lib/jenkins/workspace/workshop') {
+                    sh 'mvn test'
+                }
+            }
+        }
+
+        stage('Maven Build') {
+            steps {
+                dir('/var/lib/jenkins/workspace/workshop') {
+                    sh 'mvn clean install'
+                }
+            }
+        }
+
+        stage('Maven Integration Test') {
+            steps {
+                dir('/var/lib/jenkins/workspace/workshop') {
+                    sh 'mvn verify'
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building the Docker image'
+
+                dir('/var/lib/jenkins/workspace/workshop') {
+                    sh 'docker build -t ci-cd-pipeline:latest .'
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                echo 'Pushing the image to Docker Hub'
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'dockerHubUser',
+                        passwordVariable: 'dockerHubPass'
+                    )
+                ]) {
+                    sh '''
+                        echo "$dockerHubPass" | docker login \
+                            --username "$dockerHubUser" \
+                            --password-stdin
+
+                        docker tag ci-cd-pipeline:latest \
+                            "$dockerHubUser/ci-cd-pipeline:latest"
+
+                        docker push \
+                            "$dockerHubUser/ci-cd-pipeline:latest"
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                dir('/var/lib/jenkins/workspace/workshop') {
+                    withKubeConfig(
+                        credentialsId: 'kubeconfig-credentials',
+                        namespace: 'default'
+                    ) {
+                        sh '''
+                            kubectl apply -f deployment.yaml
+                            kubectl apply -f service.yaml
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
 
